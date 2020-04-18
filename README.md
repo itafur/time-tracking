@@ -1,1 +1,1 @@
-# time-tracking
+# Time-tracking is a test project.
