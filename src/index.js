@@ -1,5 +1,5 @@
 const app = require('./app')
-require('./database')
+require('./utils/database')
 
 app.listen(3000, () => {
     console.log("Server on port 3000.")
