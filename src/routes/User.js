@@ -8,6 +8,25 @@ router.post('/register', (req, res) => {
     userCreate(req, res)
 })
 
+router.get('/usersAll', (req, res) => {
+    getUsersAll(req, res)
+})
+
+function getUsersAll(req, res) {
+    User.find({}, {}, { sort: { updatedAt: -1 } }).then((usersResults) => {
+        let users = usersResults.map(u => {
+            return {
+                id: u._id,
+                fullname: u.firstname + ' ' + u.lastname,
+                createdAt: u.createdAt,
+                updatedAt: u.updatedAt
+            }
+        })
+
+        res.send(users)
+    })
+}
+
 function userCreate(req, res) {
     // Validate parameter and field
     let validateObject = creationValidate(req.body)

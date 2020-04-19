@@ -3,10 +3,67 @@ const router = express.Router()
 
 // Models
 const Project = require('../model/Project')
+const Task = require('../model/Task')
 
 router.post('/create', (req, res) => {
     projectCreate(req, res)
 })
+
+router.get('/projectsAll', (req, res) => {
+    getProjectsAll(req, res)
+})
+
+function getProjectsAll(req, res) {
+    Project.find({}, {}, { sort: { updatedAt: 1 } }).then((projectsResults) => {
+
+        let timeSpentTotal = 0
+
+        let projects = projectsResults.map(p => {
+            return {
+                id: p._id,
+                name: p.name,
+                timeSpent: 0,
+                users: []
+            }
+        })
+
+        let tasksPromises = []
+        projects.forEach((p) => {
+            tasksPromises.push(Task.find({ projectId: p.id }))
+        })
+
+        Promise.all(tasksPromises).then((tasksResults) => {
+            let usersMap = new Map()
+
+            projects.forEach((p, i, ar) => {
+                tasksResults[i].forEach((t) => {
+                    ar[i].timeSpent += t.duration
+                    timeSpentTotal += t.duration
+                    let userObj = usersMap.get(p.id + '_' + t.uid)
+                    let userDuration = (userObj) ? (userObj.duration + t.duration) : t.duration
+                    usersMap.set(p.id + '_' + t.uid, { userId: t.uid, duration: userDuration })
+                })
+            })
+
+            projects.forEach((p, i, ar) => {
+                usersMap.forEach((u, k)=> {
+                    if (k.indexOf(p.id) > -1) {
+                        ar[i].users.push({
+                            id: u.userId,
+                            timeSpent: u.duration
+                        })
+                    }
+                })
+            })
+
+            res.send({
+                timeSpentTotal,
+                projects
+            })
+
+        })
+    })
+}
 
 function projectCreate(req, res) {
     // Validate parameter and field

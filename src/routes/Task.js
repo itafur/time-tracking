@@ -19,6 +19,155 @@ router.put('/associateProject', (req, res) => {
     associateProjectByTask(req, res)
 })
 
+router.get('/tasksAllByUser/:uid', (req, res) => {
+    getTasksAllByUser(req, res)
+})
+
+router.get('/tasksGroupedPerProjectsByUser/:uid', (req, res) => {
+    getTasksGroupedPerProjectsByUser(req, res)
+})
+
+function getTasksGroupedPerProjectsByUser(req, res) {
+    let uid = req.params.uid
+    try {
+        Task.find({ uid: uid }).then((tasksResult) => {
+            if (tasksResult.length === 0) {
+                res.send({
+                    projects: [],
+                    tasksWithoutProjects: {
+                        timeSpent: 0,
+                        tasksQuantity: 0
+                    },
+                    timeSpent: {
+                        total: 0,
+                        onProjects: 0,
+                        free: 0
+                    }
+                })
+                return
+            }
+
+            let projectsMap = new Map()
+            let projectsPromises = []
+            let timeSpent = {
+                total: 0,
+                onProjects: 0,
+                free: 0
+            }
+
+            projectsMap.set('WITHOUT_PROJECT', {
+                timeSpent: 0,
+                tasksQuantity: 0
+            })
+
+            tasksResult.forEach((t) => {
+                let obj = projectsMap.get(t.projectId)
+                if (t.projectId && !obj) {
+                    projectsPromises.push(Project.findById({ _id: mongoose.Types.ObjectId(t.projectId) }))
+                }
+                let key = (t.projectId) ? t.projectId : 'WITHOUT_PROJECT'
+                let _timeSpent = (obj) ? (obj.timeSpent + t.duration) : t.duration
+                let _tasksQuantity = (obj) ? (obj.tasksQuantity + 1) : 1
+                timeSpent.total += t.duration
+                if (key === 'WITHOUT_PROJECT') {
+                    timeSpent.free += t.duration
+                } else {
+                    timeSpent.onProjects += t.duration
+                }
+                projectsMap.set(key, {
+                    timeSpent: _timeSpent,
+                    tasksQuantity: _tasksQuantity
+                })
+            })
+
+            if (projectsPromises.length === 0) {
+                res.send({
+                    projects: [],
+                    tasksWithoutProjects: projectsMap.get('WITHOUT_PROJECT'),
+                    timeSpent
+                })
+                return
+            }
+
+            Promise.all(projectsPromises).then((projectsResults) => {
+                let projects = []
+                
+                projectsResults.forEach((p) => {
+                    let obj = projectsMap.get(String(p._id))
+                    projects.push({
+                        id: p._id,
+                        name: p.name,
+                        timeSpent: (obj) ? obj.timeSpent : 0,
+                        tasksQuantity: (obj) ? obj.tasksQuantity : 0
+                    })
+                })
+
+                res.send({
+                    projects,
+                    tasksWithoutProjects: projectsMap.get('WITHOUT_PROJECT'),
+                    timeSpent
+                })
+            })
+
+        })
+    } catch (err) {
+        res.status(501).send({
+            message: err
+        })
+    }
+}
+
+function getTasksAllByUser(req, res) {
+    let uid = req.params.uid
+    try {
+        Task.find({ uid: uid }, {}, { sort: { updatedAt: -1 } }).then((tasksResult) => {
+            if (tasksResult.length === 0) {
+                res.send([])
+                return
+            }
+
+            let tasks = tasksResult.map(t => {
+                return {
+                    id: t._id,
+                    name: t.name,
+                    status: t.status,
+                    projectId: t.projectId,
+                    duration: t.duration,
+                    timeRecords: []
+                }
+            })
+
+            let timeRecordsPromises = []
+            tasks.forEach((t) => {
+                timeRecordsPromises.push(TimeRecord.find({ taskId: t.id }, {}, { sort: { startedAt: -1 } }))
+            })
+
+            Promise.all(timeRecordsPromises).then((timeRecordsResults) => {
+
+                tasks.forEach((t, i, ar) => {
+                    let timeRecords = timeRecordsResults[i].map(tr => {
+                        return {
+                            id: tr._id,
+                            startedAt: tr.startedAt,
+                            stoppedAt: tr.stoppedAt,
+                            status: tr.status,
+                            duration: tr.duration
+                        }
+                    })
+
+                    ar[i].timeRecords = timeRecords
+                })
+
+                res.send(tasks)
+            })
+        })
+    } catch (err) {
+        res.status(501).send({
+            message: err
+        })
+    }
+}
+
 function statusChange(req, res) {
     // Validate parameter and field
     let validateObject = statusChangeValidate(req.body)
