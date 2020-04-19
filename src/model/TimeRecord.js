@@ -7,10 +7,14 @@ const TimeRecordSchema = new Schema({
     },
     stoppedAt: {
         type: Object,
-        required: true
+        required: false
     },
     duration: {
         type: Number,
+        required: true
+    },
+    status: {
+        type: String,
         required: true
     },
     taskId: {
@@ -19,4 +23,4 @@ const TimeRecordSchema = new Schema({
     }
 })
 
-module.exports = model('timeRecords', TimeRecordSchema)
+module.exports = model('time_records', TimeRecordSchema)

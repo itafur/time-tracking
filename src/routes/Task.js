@@ -1,13 +1,162 @@
 const express = require('express')
 const router = express.Router()
+const mongoose = require('mongoose')
 
 // Models
 const Task = require('../model/Task')
 const TimeRecord = require('../model/TimeRecord')
+const Project = require('../model/Project')
 
 router.post('/create', (req, res) => {
+    taskCreate(req, res)
+})
+
+router.put('/statusChange', (req, res) => {
+    statusChange(req, res)
+})
+
+router.put('/associateProject', (req, res) => {
+    associateProjectByTask(req, res)
+})
+
+function statusChange(req, res) {
     // Validate parameter and field
-    let validateObject = validate(req.body)
+    let validateObject = statusChangeValidate(req.body)
+    if (validateObject.isInvalid) {
+        res.status(401).send({
+            message: validateObject.errorMessage
+        })
+        return
+    }
+
+    try {
+        Task.findById({ _id: mongoose.Types.ObjectId(req.body.taskId) }).then((snapshot) => {
+            if (!snapshot) {
+                res.status(501).send({
+                    message: 'Task id does not exist'
+                })
+                return
+            }
+
+            let data = {
+                status: (snapshot.status === 'PAUSED') ? 'STARTED' : 'PAUSED',
+                updatedAt: (new Date()),
+                duration: snapshot.duration
+            }
+
+            if (snapshot.status === 'PAUSED') {
+                let execution = getExecution(req.body)
+
+                if (execution.action === 'MANUAL') {
+                    data.status = 'PAUSED'
+                }
+
+                data.duration += execution.duration
+
+                let newTimeRecord = new TimeRecord({
+                    startedAt: execution.start,
+                    stoppedAt: execution.stop,
+                    duration: execution.duration,
+                    status: execution.status,
+                    taskId: req.body.taskId
+                })
+
+                let taskPromise = Task.updateOne({ _id: mongoose.Types.ObjectId(req.body.taskId) }, { $set: data })
+
+                let timeRecordPromise = newTimeRecord.save()
+            
+                Promise.all([taskPromise, timeRecordPromise]).then(() => {
+                    res.send({
+                        message: 'Status change was applied'
+                    })
+                }).catch(err => {
+                    res.status(501).send({
+                        message: err
+                    })
+                })
+
+            } else if (snapshot.status === 'STARTED') {
+                TimeRecord.findOne({taskId: req.body.taskId, status: "CREATED" }).then((result) => {
+                    let currentDate = (new Date())
+
+                    let duration = durationCalculate((new Date(result.startedAt)), currentDate)
+
+                    data.duration += duration
+
+                    let taskPromise = Task.updateOne({ _id: mongoose.Types.ObjectId(req.body.taskId) }, { $set: data })
+
+                    let timeRecordPromise = TimeRecord.updateOne({ _id: mongoose.Types.ObjectId(result._id) }, { $set: { stoppedAt: currentDate, duration: duration, status: 'FINISHED' }})
+                
+                    Promise.all([taskPromise, timeRecordPromise]).then(() => {
+                        res.send({
+                            message: 'Status change was applied'
+                        })
+                    }).catch(err => {
+                        res.status(501).send({
+                            message: err
+                        })
+                    })
+                })
+            }
+
+        })
+    } catch (err) {
+        res.status(501).send({
+            message: err
+        })
+    }
+}
+
+function associateProjectByTask(req, res) {
+    // Validate parameter and field
+    let validateObject = associateProjectValidate(req.body)
+    if (validateObject.isInvalid) {
+        res.status(401).send({
+            message: validateObject.errorMessage
+        })
+        return
+    }
+
+    try {
+        let taskFind = Task.findById({ _id: mongoose.Types.ObjectId(req.body.taskId) })
+        let projectFind = Project.findById({ _id: mongoose.Types.ObjectId(req.body.projectId) })
+
+        Promise.all([taskFind, projectFind]).then((callback) => {
+            let task = callback[0]
+            let project = callback[1]
+            if (!task) {
+                res.status(501).send({
+                    message: 'Task id does not exist'
+                })
+                return
+            }
+            if (!project) {
+                res.status(501).send({
+                    message: 'Project id does not exist'
+                })
+                return
+            }
+
+            Task.updateOne({ _id: mongoose.Types.ObjectId(req.body.taskId) }, { $set: { projectId: req.body.projectId }}).then(() => {
+                res.send({
+                    message: 'The field projectId was updated'
+                })
+            })
+        }).catch(err => {
+            res.status(501).send({
+                message: err
+            })
+        })
+    } catch (err) {
+        res.status(501).send({
+            message: err
+        })
+    }
+}
+
+function taskCreate(req, res) {
+    // Validate parameter and field
+    let validateObject = creationValidate(req.body)
     if (validateObject.isInvalid) {
         res.status(401).send({
             message: validateObject.errorMessage
@@ -32,6 +181,7 @@ router.post('/create', (req, res) => {
         startedAt: execution.start,
         stoppedAt: execution.stop,
         duration: execution.duration,
+        status: execution.status,
         taskId: newTask._id
     })
 
@@ -40,15 +190,57 @@ router.post('/create', (req, res) => {
             message: 'Task has been created'
         })
     }).catch(err => {
-        console.error('[13994] ', err)
         res.status(501).send({
-            message: '[13994] ' + err
+            message: err
         })
     })
+}
 
-})
+function statusChangeValidate(body) {
+    let obj = {
+        isInvalid: false,
+        errorMessage: ''
+    }
 
-function validate(body) {
+    if (!body.taskId) {
+        obj.isInvalid = true
+        obj.errorMessage = 'Taskid is required'
+    } else if (!body.action) {
+        obj.isInvalid = true
+        obj.errorMessage = 'Action is required'
+    } else if (body.action !== 'RESTART' && body.action !== 'PAUSE') {
+        obj.isInvalid = true
+        obj.errorMessage = 'The options of the action are: RESTART or PAUSE'
+    } else if (body.action === 'RESTART' && body.start && body.stop) {
+        let start = (new Date(body.start)).getTime()
+        let stop = (new Date(body.stop)).getTime()
+        if (start > stop) {
+            obj.isInvalid = true
+            obj.errorMessage = '<Start> parameter should not be greater than <stop>'
+        }
+    }
+
+    return obj
+}
+
+function associateProjectValidate(body) {
+    let obj = {
+        isInvalid: false,
+        errorMessage: ''
+    }
+
+    if (!body.taskId) {
+        obj.isInvalid = true
+        obj.errorMessage = 'TaskId is required'
+    } else if (!body.hasOwnProperty('projectId')) {
+        obj.isInvalid = true
+        obj.errorMessage = 'ProjectId is required'
+    }
+
+    return obj
+}
+
+function creationValidate(body) {
     let obj = {
         isInvalid: false,
         errorMessage: ''
@@ -56,7 +248,7 @@ function validate(body) {
 
     if (!body.uid) {
         obj.isInvalid = true
-        obj.errorMessage = 'I must send user identification'
+        obj.errorMessage = 'You must send user identification'
     } else if (body.start && body.stop) {
         let start = (new Date(body.start)).getTime()
         let stop = (new Date(body.stop)).getTime()
@@ -80,15 +272,17 @@ function getExecution(body) {
     if (body.start && body.stop) {
         let start = (new Date(body.start))
         let stop = (new Date(body.stop))
-        let duration = Math.round((stop - start)/1000)
-
         obj.action = 'MANUAL'
         obj.start = start
         obj.stop = stop
-        obj.duration = duration
+        obj.duration = durationCalculate(start, stop)
         obj.status = 'FINISHED'
     }
     return obj
+}
+
+function durationCalculate(start, stop) {
+    return Math.round((stop - start)/1000)
 }
 
 module.exports = router
