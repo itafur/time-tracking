@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "test": "nyc --report=text mocha --timeout 120000"
   },
   "repository": {
     "type": "git",
@@ -20,9 +21,15 @@
   "homepage": "https://github.com/itafur/time-tracking#readme",
   "dependencies": {
     "express": "^4.17.1",
-    "mongoose": "^5.9.9"
+    "mongoose": "^5.9.9",
+    "swagger-jsdoc": "^4.0.0",
+    "swagger-ui-express": "^4.1.4"
   },
   "devDependencies": {
-    "nodemon": "^2.0.3"
+    "chai": "^4.2.0",
+    "chai-http": "^4.3.0",
+    "mocha": "^7.1.1",
+    "nodemon": "^2.0.3",
+    "nyc": "^15.0.1"
   }
 }
